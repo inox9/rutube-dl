@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import requests
 import re
 import sys
@@ -57,7 +57,7 @@ def size_checker(cq, rq):
 		except queue.Empty:
 			rq.put(None)
 			break
-		rq.put((item[1], int(requests.head(item[0]).headers['content-length'])))
+		rq.put_nowait((item[1], int(requests.head(item[0]).headers['content-length'])))
 		cq.task_done()
 
 MB = 1048576
