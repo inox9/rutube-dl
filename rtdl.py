@@ -11,8 +11,8 @@ import random
 import html.entities as HE
 from urllib.parse import urlsplit, urlunsplit
 
-if sys.version_info < (3, 0):
-	raise 'Script requires Python 3.0 or higher to run!'
+if sys.version_info < (3, 1):
+	raise 'Script requires Python 3.1 or higher to run!'
 
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.75 Safari/537.36'
 DOWNLOAD_THREADS = 4
@@ -203,7 +203,7 @@ if __name__ == '__main__':
 		else:
 			bytes_dl += item
 			parts_dl += 1
-			sys.stdout.write("\r[INFO] Download in progress - {0:.1f}%, {3:.1f}/{4:.1f}Mb ({1}/{2})".format(parts_dl / parts_cnt * 100, parts_dl, parts_cnt, bytes_dl / MB, mb_size_total))
+			sys.stdout.write("\r[INFO] Downloading - {0:.1f}%, {3:.1f}/{4:.1f}Mb ({1}/{2})".format(parts_dl / parts_cnt * 100, parts_dl, parts_cnt, bytes_dl / MB, mb_size_total))
 			sys.stdout.flush()
 			resq.task_done()
 		if f_thr == DOWNLOAD_THREADS: # all threads have finished download processing
