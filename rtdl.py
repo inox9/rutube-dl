@@ -8,7 +8,7 @@ import threading
 import subprocess
 import os
 import random
-import html as HTML
+import html.entities as HE
 from urllib.parse import urlsplit, urlunsplit
 
 if sys.version_info < (3, 0):
@@ -100,10 +100,10 @@ if __name__ == '__main__':
 		for proxy in proxies:
 			proxystr = 'http://{0}:{1}'.format(proxy[0], proxy[1])
 			try:
-				html = requests.get('http://rutube.ru', proxies={'http': proxystr}, timeout=2, headers=hdrs).text
+				proxied_html = requests.get('http://rutube.ru', proxies={'http': proxystr}, timeout=2, headers=hdrs).text
 			except Exception:
 				continue
-			if 'Rutube' not in html:
+			if 'Rutube' not in proxied_html:
 				continue
 			info('Chose proxy -- {0}'.format(proxystr))
 			os.environ['HTTP_PROXY'] = proxystr
@@ -115,11 +115,13 @@ if __name__ == '__main__':
 	title = js['title']
 	for ch in ('<', '>', ':', '"', '/', '\\', '|', '?', '*'):
 		title = title.replace(ch, '')
-	html = requests.get(js['embed_url']).text
-	opts = re.search(r'<div id="options" data-value="(.+)"', html)
+	embed_html = requests.get(js['embed_url']).text
+	opts = re.search(r'<div id="options" data-value="(.+)"', embed_html)
 	if not opts:
 		die('No options found')
-	opts = HTML.unescape(opts.group(1))
+	opts = opts.group(1)
+	for what, to in HE.entitydefs.items():
+		opts = opts.replace('&{0};'.format(what), to)
 	js = json.loads(opts)
 	try:
 		m3u8 = requests.get(js['video_balancer']['m3u8'], headers=hdrs).text
