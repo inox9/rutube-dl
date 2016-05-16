@@ -98,19 +98,19 @@ if __name__ == '__main__':
 		random.shuffle(proxies)
 		info('Testing proxies')
 		for proxy in proxies:
-			proxystr = 'http://{0}:{1}'.format(proxy[0], proxy[1])
+			proxystr = 'http://{0[0]}:{0[1]}'.format(proxy)
 			try:
 				proxied_html = requests.get('http://rutube.ru', proxies={'http': proxystr}, timeout=2, headers=hdrs).text
 			except Exception:
 				continue
 			if 'Rutube' not in proxied_html:
 				continue
-			info('Chose proxy -- {0}'.format(proxystr))
+			info('Chosen proxy - {}'.format(proxystr))
 			os.environ['HTTP_PROXY'] = proxystr
 			break
 	hdrs['Referer'] = sys.argv[1]
 	vhash = r.group(1)
-	js = requests.get('http://rutube.ru/api/video/{0}'.format(vhash), headers=hdrs).text
+	js = requests.get('http://rutube.ru/api/video/{}'.format(vhash), headers=hdrs).text
 	js = json.loads(js)
 	title = js['title']
 	for ch in ('<', '>', ':', '"', '/', '\\', '|', '?', '*'):
@@ -121,7 +121,7 @@ if __name__ == '__main__':
 		die('No options found')
 	opts = opts.group(1)
 	for what, to in HE.entitydefs.items():
-		opts = opts.replace('&{0};'.format(what), to)
+		opts = opts.replace('&{};'.format(what), to)
 	js = json.loads(opts)
 	try:
 		m3u8 = requests.get(js['video_balancer']['m3u8'], headers=hdrs).text
@@ -134,12 +134,12 @@ if __name__ == '__main__':
 		die('Cant get main playlist url')
 	m3u8 = requests.get(parts_url, headers=hdrs).text
 	parsed = urlsplit(parts_url)
-	source_fn = os.path.join(save_dir, '{0}.ts'.format(title)) if save_dir else '{0}.ts'.format(title)
+	source_fn = os.path.join(save_dir, '{}.ts'.format(title)) if save_dir else '{}.ts'.format(title)
 	valid_lines = list(x for x in m3u8.splitlines() if x[0] != '#')
 	if os.path.exists(source_fn):
 		os.remove(source_fn)
 	
-	info('Saving TS source to: "{0}"'.format(source_fn))
+	info('Saving TS source to: "{}"'.format(source_fn))
 	dlq = queue.Queue() # download queue
 	resq = queue.Queue() # result queue
 	scq  = queue.Queue() # size checker queue
@@ -195,7 +195,7 @@ if __name__ == '__main__':
 	parts_dl = 0
 	bytes_dl = 0
 	f_thr = 0
-	mb_size_total = round(size_total / MB, 1)
+	mb_size_total = size_total / MB
 	while True: # here we process progress messages from threads and actually wait till download finishes
 		item = resq.get()
 		if item is None:
@@ -203,7 +203,7 @@ if __name__ == '__main__':
 		else:
 			bytes_dl += item
 			parts_dl += 1
-			sys.stdout.write("\r[INFO] Download in progress -- {0}%, {3}/{4}Mb ({1}/{2})".format(round(parts_dl / parts_cnt * 100, 1), parts_dl, parts_cnt, round(bytes_dl / MB, 1), mb_size_total))
+			sys.stdout.write("\r[INFO] Download in progress - {0:.1f}%, {3:.1f}/{4:.1f}Mb ({1}/{2})".format(parts_dl / parts_cnt * 100, parts_dl, parts_cnt, bytes_dl / MB, mb_size_total))
 			sys.stdout.flush()
 			resq.task_done()
 		if f_thr == DOWNLOAD_THREADS: # all threads have finished download processing
@@ -215,11 +215,11 @@ if __name__ == '__main__':
 	print()
 	if convert:
 		try:
-			info('Converting to {0}'.format(oformat.upper()))
+			info('Converting to {}'.format(oformat.upper()))
 			dest_fn = re.sub(r'ts$', oformat, source_fn)
 			subprocess.check_call(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', source_fn, '-c:v', 'copy', '-c:a', 'copy', '-bsf:a', 'aac_adtstoasc', dest_fn])
 			info('Removing TS source')
-			info('Result file was saved to: "{0}"'.format(dest_fn))
+			info('Result file was saved to: "{}"'.format(dest_fn))
 			os.remove(source_fn)
 		except subprocess.CalledProcessError:
 			die('FFMPEG convert ERROR!')
