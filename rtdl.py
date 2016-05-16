@@ -88,7 +88,7 @@ if __name__ == '__main__':
 	else:
 		oformat = 'mp4'
 
-	noconvert = '-nc' in sys.argv
+	convert = '-nc' not in sys.argv
 
 	hdrs = {'User-Agent': USER_AGENT, 'Connection': 'keep-alive'}
 	if '-p' in sys.argv:
@@ -211,7 +211,7 @@ if __name__ == '__main__':
 		t.join()
 
 	print()
-	if not noconvert:
+	if convert:
 		try:
 			info('Converting to {0}'.format(oformat.upper()))
 			dest_fn = re.sub(r'ts$', oformat, source_fn)
