@@ -97,6 +97,7 @@ if __name__ == '__main__':
 		proxies = re.findall(r'<tr><td>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td><td>RU<\/td>', proxy_html)
 		random.shuffle(proxies)
 		info('Testing proxies')
+		proxy_found = False
 		for proxy in proxies:
 			proxystr = 'http://{0[0]}:{0[1]}'.format(proxy)
 			try:
@@ -107,7 +108,10 @@ if __name__ == '__main__':
 				continue
 			info('Chosen proxy - {}'.format(proxystr))
 			os.environ['HTTP_PROXY'] = proxystr
+			proxy_found = True
 			break
+		if not proxy_found:
+			die('Working proxy was not found, try again later')
 	hdrs['Referer'] = sys.argv[1]
 	vhash = r.group(1)
 	js = requests.get('http://rutube.ru/api/video/{}'.format(vhash), headers=hdrs).text
