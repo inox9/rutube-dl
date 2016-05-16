@@ -65,10 +65,11 @@ def size_checker(cq, rq):
 		cq.task_done()
 
 if __name__ == '__main__':
-	print('RuTube Downloader v0.1\n')
+	print('RuTube Downloader v0.2\n')
 
 	if len(sys.argv) < 2:
-		die('Usage: rtdl.py rutube_url [-O dir] [-f mkv|mp4] [-p]\nCustom params:\n\t-O dir\t\t-- set directory to save result files (default: current working dir)\n\t-f mp4|mkv\t-- set result file format (default: mp4)\n\t-p\t\t-- use RU proxy for downloading country-restricted videos (default: disabled)')
+		die('Usage: rtdl.py rutube_url [-O dir] [-f mkv|mp4] [-p] [-nc]\nCustom params:\n\t-O dir\t\t-- set directory to save result files (default: current working dir)\n\t-f mp4|mkv\t-- set result file format (default: mp4)\n\t-p\t\t-- use RU proxy for downloading country-restricted videos (default: disabled)\n\t-nc\t\t-- don\'t convert source file to MP4/MKV')
+	# cli argument parsing
 	r = re.match(r'http://rutube\.ru/video/([a-f0-9]+)', sys.argv[1])
 	if not r:
 		die('Wrong url supplied')
@@ -86,6 +87,8 @@ if __name__ == '__main__':
 			die('Format should be either mkv or mp4')
 	else:
 		oformat = 'mp4'
+
+	noconvert = '-nc' in sys.argv
 
 	hdrs = {'User-Agent': USER_AGENT, 'Connection': 'keep-alive'}
 	if '-p' in sys.argv:
@@ -208,13 +211,14 @@ if __name__ == '__main__':
 		t.join()
 
 	print()
-	try:
-		info('Converting to {0}'.format(oformat.upper()))
-		dest_fn = re.sub(r'ts$', oformat, source_fn)
-		subprocess.check_call(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', source_fn, '-c:v', 'copy', '-c:a', 'copy', '-bsf:a', 'aac_adtstoasc', dest_fn])
-		info('Removing TS source')
-		info('Result file was saved to: "{0}"'.format(dest_fn))
-		os.remove(source_fn)
-	except subprocess.CalledProcessError:
-		die('FFMPEG convert ERROR!')
+	if not noconvert:
+		try:
+			info('Converting to {0}'.format(oformat.upper()))
+			dest_fn = re.sub(r'ts$', oformat, source_fn)
+			subprocess.check_call(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', source_fn, '-c:v', 'copy', '-c:a', 'copy', '-bsf:a', 'aac_adtstoasc', dest_fn])
+			info('Removing TS source')
+			info('Result file was saved to: "{0}"'.format(dest_fn))
+			os.remove(source_fn)
+		except subprocess.CalledProcessError:
+			die('FFMPEG convert ERROR!')
 	info('Everything\'s done!')
