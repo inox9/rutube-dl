@@ -5,21 +5,25 @@ import sys
 import json
 import queue
 import threading
-import lxml.html as LH
 import subprocess
 import os
 import random
+import html as HTML
 from urllib.parse import urlsplit, urlunsplit
+
+if sys.version_info < (3, 0):
+	raise 'Script requires Python 3.0 or higher to run!'
 
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.75 Safari/537.36'
 DOWNLOAD_THREADS = 4
+MB = 1048576 # do not change this
 
 def die(s):
 	print(s)
 	sys.exit()
 
 def info(s):
-	print('[INFO] {0}'.format(s))
+	print('[INFO]', s)
 
 def compose_url(base_parsed, newpath):
 	new_parsed = list(base_parsed)
@@ -34,7 +38,7 @@ def downloader(dq, fn, rq, hdrs):
 			item = dq.get_nowait()
 		except queue.Empty:
 			fs.close()
-			rq.put(None)
+			rq.put_nowait(None)
 			break
 		fs.seek(item[1])
 		r = requests.get(item[0], stream=True, headers=hdrs)
@@ -44,7 +48,7 @@ def downloader(dq, fn, rq, hdrs):
 					fs.write(chunk)
 		except (Exception, KeyboardInterrupt):
 			fs.close()
-			sys.stdout.write("\n")
+			print()
 			print('Downloading was interrupted!')
 			raise
 		dq.task_done()
@@ -55,12 +59,11 @@ def size_checker(cq, rq):
 		try:
 			item = cq.get_nowait()
 		except queue.Empty:
-			rq.put(None)
+			rq.put_nowait(None)
 			break
 		rq.put_nowait((item[1], int(requests.head(item[0]).headers['content-length'])))
 		cq.task_done()
 
-MB = 1048576
 if __name__ == '__main__':
 	print('RuTube Downloader v0.1\n')
 
@@ -74,6 +77,8 @@ if __name__ == '__main__':
 		save_dir = sys.argv[sys.argv.index('-O')+1]
 		if not os.path.exists(save_dir):
 			die('Destination dir does not exist')
+	else:
+		save_dir = None
 
 	if '-f' in sys.argv:
 		oformat = sys.argv[sys.argv.index('-f')+1]
@@ -86,8 +91,7 @@ if __name__ == '__main__':
 	if '-p' in sys.argv:
 		info('Getting RU proxies list')
 		proxy_html = requests.get('http://free-proxy-list.net', headers=hdrs).text
-		proxies = LH.fromstring(proxy_html).xpath('//table[@id="proxylisttable"]/tbody/tr/td[position()<4]/text()')
-		proxies = list(x for x in zip(*[iter(proxies)] * 3) if x[2] == 'RU')
+		proxies = re.findall(r'<tr><td>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td><td>RU<\/td>', proxy_html)
 		random.shuffle(proxies)
 		info('Testing proxies')
 		for proxy in proxies:
@@ -109,9 +113,10 @@ if __name__ == '__main__':
 	for ch in ('<', '>', ':', '"', '/', '\\', '|', '?', '*'):
 		title = title.replace(ch, '')
 	html = requests.get(js['embed_url']).text
-	opts = LH.fromstring(html).xpath('//div[@id="options"]/@data-value')[0]
+	opts = re.search(r'<div id="options" data-value="(.+)"', html)
 	if not opts:
 		die('No options found')
+	opts = HTML.unescape(opts.group(1))
 	js = json.loads(opts)
 	try:
 		m3u8 = requests.get(js['video_balancer']['m3u8'], headers=hdrs).text
@@ -158,7 +163,7 @@ if __name__ == '__main__':
 		else:
 			sizes[item[0]] = item[1]
 			resq.task_done()
-		if f_thr == DOWNLOAD_THREADS:
+		if f_thr == DOWNLOAD_THREADS: # all threads have finished getting content-length
 			break
 
 	for t in thrs:
@@ -202,7 +207,7 @@ if __name__ == '__main__':
 	for t in thrs:
 		t.join()
 
-	sys.stdout.write("\n")
+	print()
 	try:
 		info('Converting to {0}'.format(oformat.upper()))
 		dest_fn = re.sub(r'ts$', oformat, source_fn)
