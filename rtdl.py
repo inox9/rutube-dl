@@ -14,6 +14,7 @@ import random
 import html.entities as HE
 import multiprocessing
 from urllib.parse import urlsplit, urlunsplit
+from threads import DownloadThread, SizeGetterThread
 
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.75 Safari/537.36'
 DOWNLOAD_THREADS = multiprocessing.cpu_count()*2
@@ -32,40 +33,8 @@ def compose_url(base_parsed, newpath):
 	new_parsed[3] = ''
 	return urlunsplit(new_parsed)
 
-def downloader(dq, fn, rq, hdrs):
-	fs = open(fn, 'wb')
-	while True:
-		try:
-			item = dq.get_nowait()
-		except queue.Empty:
-			fs.close()
-			rq.put_nowait(None)
-			break
-		fs.seek(item[1])
-		r = requests.get(item[0], stream=True, headers=hdrs)
-		try:
-			for chunk in r.iter_content(chunk_size=8192):
-				if chunk:
-					fs.write(chunk)
-		except (Exception, KeyboardInterrupt):
-			fs.close()
-			print('\nDownloading was interrupted!')
-			raise
-		dq.task_done()
-		rq.put_nowait(int(r.headers['content-length']))
-
-def size_checker(cq, rq):
-	while True:
-		try:
-			item = cq.get_nowait()
-		except queue.Empty:
-			rq.put_nowait(None)
-			break
-		rq.put_nowait((item[1], int(requests.head(item[0]).headers['content-length'])))
-		cq.task_done()
-
 if __name__ == '__main__':
-	print('RuTube Downloader v0.2\n')
+	print('RuTube Downloader v0.3\n')
 
 	if len(sys.argv) < 2:
 		die('Usage: rtdl.py rutube_url [-O dir] [-f mkv|mp4] [-p] [-nc]\nCustom params:\n\t-O dir\t\t-- set directory to save result files (default: current working dir)\n\t-f mp4|mkv\t-- set result file format (default: mp4)\n\t-p\t\t-- use RU proxy for downloading country-restricted videos (default: disabled)\n\t-nc\t\t-- don\'t convert source file to MP4/MKV')
@@ -165,14 +134,21 @@ if __name__ == '__main__':
 	info('Getting source\'s total size')
 	thrs = []
 	for i in range(DOWNLOAD_THREADS):
-		thr = threading.Thread(target=size_checker, args=(scq, resq))
+		thr = SizeGetterThread(scq, resq, hdrs)
 		thr.start()
 		thrs.append(thr)
 
 	f_thr = 0
 	sizes = {}
 	while True:
-		item = resq.get()
+		try:
+			item = resq.get()
+		except KeyboardInterrupt: # Ctrl-C is pressed
+			info('\nStopping size getter threads')
+			for t in thrs:
+				t.kill()
+				t.join()
+			die('Aborted!')
 		if item is None:
 			f_thr += 1
 		else:
@@ -180,6 +156,7 @@ if __name__ == '__main__':
 			resq.task_done()
 		if f_thr == DOWNLOAD_THREADS: # all threads have finished getting content-length
 			break
+		
 
 	for t in thrs:
 		t.join()
@@ -198,7 +175,7 @@ if __name__ == '__main__':
 	# start threaded downloading
 	thrs = []
 	for i in range(DOWNLOAD_THREADS):
-		thr = threading.Thread(target=downloader, args=(dlq, source_fn, resq, hdrs))
+		thr = DownloadThread(dlq, source_fn, resq, hdrs)
 		thr.start()
 		thrs.append(thr)
 	
@@ -207,7 +184,16 @@ if __name__ == '__main__':
 	f_thr = 0
 	mb_size_total = size_total / MB
 	while True: # here we process progress messages from threads and actually wait till download finishes
-		item = resq.get()
+		try:
+			item = resq.get()
+		except KeyboardInterrupt: # Ctrl-C is pressed
+			info('\nStopping download threads')
+			for t in thrs:
+				t.kill()
+				t.join()
+			info('Removing incompleted source file')
+			os.remove(source_fn)
+			die('Downloading was aborted!')
 		if item is None:
 			f_thr += 1
 		else:
@@ -217,7 +203,7 @@ if __name__ == '__main__':
 			sys.stdout.flush()
 			resq.task_done()
 		if f_thr == DOWNLOAD_THREADS: # all threads have finished download processing
-			break
+			break	
 	
 	for t in thrs:
 		t.join()

@@ -1,3 +1,4 @@
 bin/
 lib/
+__pycache__/
 pip-selfcheck.json
