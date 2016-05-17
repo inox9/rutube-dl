@@ -81,7 +81,7 @@ if __name__ == '__main__':
 		if not os.path.exists(save_dir):
 			try:
 				info('Creating destination directory')
-				os.mkdir(save_dir, 755)
+				os.mkdir(save_dir, 0o755)
 			except OSError as e:
 				die('Cannot create destination dir: {}'.format(e))
 	else:
