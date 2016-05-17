@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+if sys.version_info < (3, 1):
+	raise 'Script requires Python 3.1 or higher to run!'
+
 import requests
 import re
 import sys
@@ -10,9 +13,6 @@ import os
 import random
 import html.entities as HE
 from urllib.parse import urlsplit, urlunsplit
-
-if sys.version_info < (3, 1):
-	raise 'Script requires Python 3.1 or higher to run!'
 
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.75 Safari/537.36'
 DOWNLOAD_THREADS = 4
@@ -219,7 +219,7 @@ if __name__ == '__main__':
 	print()
 	if convert:
 		try:
-			info('Converting to {}'.format(oformat.upper()))
+			info('Converting to {} (ffmpeg)'.format(oformat.upper()))
 			dest_fn = re.sub(r'ts$', oformat, source_fn)
 			subprocess.check_call(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', source_fn, '-c:v', 'copy', '-c:a', 'copy', '-bsf:a', 'aac_adtstoasc', dest_fn])
 			info('Removing TS source')
