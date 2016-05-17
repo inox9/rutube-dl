@@ -12,10 +12,11 @@ import subprocess
 import os
 import random
 import html.entities as HE
+import multiprocessing
 from urllib.parse import urlsplit, urlunsplit
 
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.75 Safari/537.36'
-DOWNLOAD_THREADS = 4
+DOWNLOAD_THREADS = multiprocessing.cpu_count()*2
 MB = 1048576 # do not change this
 
 def die(s):
@@ -48,8 +49,7 @@ def downloader(dq, fn, rq, hdrs):
 					fs.write(chunk)
 		except (Exception, KeyboardInterrupt):
 			fs.close()
-			print()
-			print('Downloading was interrupted!')
+			print('\nDownloading was interrupted!')
 			raise
 		dq.task_done()
 		rq.put_nowait(int(r.headers['content-length']))
@@ -76,8 +76,14 @@ if __name__ == '__main__':
 
 	if '-O' in sys.argv:
 		save_dir = sys.argv[sys.argv.index('-O')+1]
+		if os.path.exists(save_dir) and not os.path.isdir(save_dir):
+			die('Destination path is not a directory')
 		if not os.path.exists(save_dir):
-			die('Destination dir does not exist')
+			try:
+				info('Creating destination directory')
+				os.mkdir(save_dir, 755)
+			except OSError as e:
+				die('Cannot create destination dir: {}'.format(e))
 	else:
 		save_dir = None
 
