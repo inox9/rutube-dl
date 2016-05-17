@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import sys
 if sys.version_info < (3, 1):
-	raise 'Script requires Python 3.1 or higher to run!'
+	raise Exception('Script requires Python 3.1 or higher to run!')
 
 import requests
 import re
