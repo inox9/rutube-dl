@@ -14,7 +14,7 @@ import random
 import html.entities as HE
 import multiprocessing
 from urllib.parse import urlsplit, urlunsplit
-from threads import DownloadThread, SizeGetterThread
+from threads import DownloadThread, SizeGetterThread, ProxyCheckerThread
 
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.75 Safari/537.36'
 DOWNLOAD_THREADS = multiprocessing.cpu_count()*2
@@ -33,29 +33,49 @@ def compose_url(base_parsed, newpath):
 	new_parsed[3] = ''
 	return urlunsplit(new_parsed)
 
-def proxy_checker(proxies, hdrs):
+def stop_threads(threads):
+	for t in threads:
+		t.kill()
+		t.join()
+
+def proxylist_check(proxies, hdrs):
+	chq = queue.Queue()
+	resq = queue.Queue()
 	for proxy in proxies:
-		proxystr = 'http://{0[0]}:{0[1]}'.format(proxy)
+		chq.put(proxy)
+	thrs = []
+	thr_count = min(DOWNLOAD_THREADS, len(proxies))
+	for i in range(thr_count):
+		thr = ProxyCheckerThread(chq, resq, hdrs)
+		thr.start()
+		thrs.append(thr)
+	f_thr = 0
+	while True:
 		try:
-			proxied_html = requests.get('http://rutube.ru', proxies={'http': proxystr}, timeout=2, headers=hdrs).text
-		except Exception:
-			continue
-		if 'Rutube' not in proxied_html:
-			continue
-		return proxystr
-	return None
+			item = resq.get()
+			resq.task_done()
+		except KeyboardInterrupt: # Ctrl-C is pressed
+			info('\nStopping proxy checker threads')
+			stop_threads(thrs)
+			die('Aborted!')
+		if item is None:
+			f_thr += 1
+		else: # we got working proxy from thread, stop another ones
+			stop_threads(thrs)
+			return item
+		if f_thr == thr_count: # all threads have finished proxy checking
+			return None
 
 def proxy_get(hdrs):
 	sources = (
-		('http://hideme.ru/proxy-list/?country=RU&type=hs', r'<td class=tdl>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td>'),
 		('http://free-proxy-list.net', r'<tr><td>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td><td>RU<\/td>'),
+		('http://hideme.ru/proxy-list/?country=RU&type=hs', r'<td class=tdl>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td>')
 	)
 	for src in sources:
 		info('Getting proxies from {}'.format(src[0]))
 		proxy_html = requests.get(src[0], headers=hdrs).text
 		proxies = re.findall(src[1], proxy_html)
-		random.shuffle(proxies)
-		proxystr = proxy_checker(proxies, hdrs)
+		proxystr = proxylist_check(proxies, hdrs)
 		if proxystr is None:
 			info('Working proxy was not found')
 		else:
@@ -149,7 +169,8 @@ if __name__ == '__main__':
 	# start threaded getting of content-length
 	info('Getting source\'s total size')
 	thrs = []
-	for i in range(DOWNLOAD_THREADS):
+	thr_count = min(DOWNLOAD_THREADS, parts_cnt)
+	for i in range(thr_count):
 		thr = SizeGetterThread(scq, resq, hdrs)
 		thr.start()
 		thrs.append(thr)
@@ -161,19 +182,16 @@ if __name__ == '__main__':
 			item = resq.get()
 		except KeyboardInterrupt: # Ctrl-C is pressed
 			info('\nStopping size getter threads')
-			for t in thrs:
-				t.kill()
-				t.join()
+			stop_threads(thrs)
 			die('Aborted!')
 		if item is None:
 			f_thr += 1
 		else:
 			sizes[item[0]] = item[1]
 			resq.task_done()
-		if f_thr == DOWNLOAD_THREADS: # all threads have finished getting content-length
+		if f_thr == thr_count: # all threads have finished getting content-length
 			break
 		
-
 	for t in thrs:
 		t.join()
 
@@ -190,7 +208,7 @@ if __name__ == '__main__':
 	resq = queue.Queue()
 	# start threaded downloading
 	thrs = []
-	for i in range(DOWNLOAD_THREADS):
+	for i in range(thr_count):
 		thr = DownloadThread(dlq, source_fn, resq, hdrs)
 		thr.start()
 		thrs.append(thr)
@@ -204,9 +222,7 @@ if __name__ == '__main__':
 			item = resq.get()
 		except KeyboardInterrupt: # Ctrl-C is pressed
 			info('\nStopping download threads')
-			for t in thrs:
-				t.kill()
-				t.join()
+			stop_threads(thrs)
 			info('Removing incompleted source file')
 			os.remove(source_fn)
 			die('Downloading was aborted!')
@@ -218,7 +234,7 @@ if __name__ == '__main__':
 			sys.stdout.write("\r[INFO] Downloading - {0:.1f}%, {3:.1f}/{4:.1f}Mb ({1}/{2})".format(parts_dl / parts_cnt * 100, parts_dl, parts_cnt, bytes_dl / MB, mb_size_total))
 			sys.stdout.flush()
 			resq.task_done()
-		if f_thr == DOWNLOAD_THREADS: # all threads have finished download processing
+		if f_thr == thr_count: # all threads have finished download processing
 			break	
 	
 	for t in thrs:
@@ -235,4 +251,4 @@ if __name__ == '__main__':
 			os.remove(source_fn)
 		except subprocess.CalledProcessError:
 			die('FFMPEG convert ERROR!')
-	info('Everything\'s done!')
+	info('Everything\'s done! Good bye!')
