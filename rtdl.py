@@ -33,6 +33,36 @@ def compose_url(base_parsed, newpath):
 	new_parsed[3] = ''
 	return urlunsplit(new_parsed)
 
+def proxy_checker(proxies, hdrs):
+	for proxy in proxies:
+		proxystr = 'http://{0[0]}:{0[1]}'.format(proxy)
+		try:
+			proxied_html = requests.get('http://rutube.ru', proxies={'http': proxystr}, timeout=2, headers=hdrs).text
+		except Exception:
+			continue
+		if 'Rutube' not in proxied_html:
+			continue
+		return proxystr
+	return None
+
+def proxy_get(hdrs):
+	sources = (
+		('http://hideme.ru/proxy-list/?country=RU&type=hs', r'<td class=tdl>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td>'),
+		('http://free-proxy-list.net', r'<tr><td>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td><td>RU<\/td>'),
+	)
+	for src in sources:
+		info('Getting proxies from {}'.format(src[0]))
+		proxy_html = requests.get(src[0], headers=hdrs).text
+		proxies = re.findall(src[1], proxy_html)
+		random.shuffle(proxies)
+		proxystr = proxy_checker(proxies, hdrs)
+		if proxystr is None:
+			info('Working proxy was not found')
+		else:
+			info('Chosen proxy - {}'.format(proxystr))
+			return proxystr
+	return None
+
 if __name__ == '__main__':
 	print('RuTube Downloader v0.3\n')
 
@@ -67,26 +97,12 @@ if __name__ == '__main__':
 
 	hdrs = {'User-Agent': USER_AGENT, 'Connection': 'keep-alive'}
 	if '-p' in sys.argv:
-		info('Getting RU proxies list')
-		proxy_html = requests.get('http://free-proxy-list.net', headers=hdrs).text
-		proxies = re.findall(r'<tr><td>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td><td>RU<\/td>', proxy_html)
-		random.shuffle(proxies)
-		info('Testing proxies')
-		proxy_found = False
-		for proxy in proxies:
-			proxystr = 'http://{0[0]}:{0[1]}'.format(proxy)
-			try:
-				proxied_html = requests.get('http://rutube.ru', proxies={'http': proxystr}, timeout=2, headers=hdrs).text
-			except Exception:
-				continue
-			if 'Rutube' not in proxied_html:
-				continue
-			info('Chosen proxy - {}'.format(proxystr))
-			os.environ['HTTP_PROXY'] = proxystr
-			proxy_found = True
-			break
-		if not proxy_found:
-			die('Working proxy was not found, try again later')
+		proxy = proxy_get(hdrs)
+		if proxy is None:
+			die('No proxy found, exiting')
+		else:
+			os.environ['HTTP_PROXY'] = proxy
+
 	hdrs['Referer'] = sys.argv[1]
 	vhash = r.group(1)
 	js = requests.get('http://rutube.ru/api/video/{}'.format(vhash), headers=hdrs).text
