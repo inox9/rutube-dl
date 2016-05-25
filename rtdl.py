@@ -125,7 +125,7 @@ if __name__ == '__main__':
 			 	proxy = fh.read(29).rstrip()
 			if re.match(r'http:\/\/(?:[0-9]{1,3}\.){3}[0-9]{1,3}:\d{2,5}', proxy):
 				try:
-					proxied_html = requests.get('http://rutube.ru', proxies={'http': proxy}, timeout=2, headers=hdrs).text
+					proxied_html = requests.get('http://rutube.ru', proxies={'http': proxy}, timeout=3, headers=hdrs).text
 				except Exception:
 					proxy = None
 				if proxy and 'Rutube' not in proxied_html:
@@ -160,7 +160,7 @@ if __name__ == '__main__':
 		m3u8 = requests.get(js['video_balancer']['m3u8'], headers=hdrs).text
 	except KeyError:
 		die('No playlist url found, perhaps video is blocked for this country')
-	valid_lines = list(x for x in m3u8.splitlines() if x[0] != '#')
+	valid_lines = [x for x in m3u8.splitlines() if x[0] != '#']
 	try:
 		parts_url = valid_lines[-1] # best quality source available is the last one
 	except IndexError:
@@ -168,7 +168,7 @@ if __name__ == '__main__':
 	m3u8 = requests.get(parts_url, headers=hdrs).text
 	parsed = urlsplit(parts_url)
 	source_fn = os.path.join(save_dir, '{}.ts'.format(title)) if save_dir else '{}.ts'.format(title)
-	valid_lines = list(x for x in m3u8.splitlines() if x[0] != '#')
+	valid_lines = [x for x in m3u8.splitlines() if x[0] != '#']
 	if os.path.exists(source_fn):
 		os.remove(source_fn)
 	
