@@ -11,6 +11,7 @@ import threading
 import subprocess
 import os
 import random
+import tempfile
 import html.entities as HE
 import multiprocessing
 from urllib.parse import urlsplit, urlunsplit
@@ -55,7 +56,7 @@ def proxylist_check(proxies, hdrs):
 			item = resq.get()
 			resq.task_done()
 		except KeyboardInterrupt: # Ctrl-C is pressed
-			info('\nStopping proxy checker threads')
+			info('Stopping proxy checker threads')
 			stop_threads(thrs)
 			die('Aborted!')
 		if item is None:
@@ -68,8 +69,8 @@ def proxylist_check(proxies, hdrs):
 
 def proxy_get(hdrs):
 	sources = (
+		('http://hideme.ru/proxy-list/?country=RU&type=hs', r'<td class=tdl>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td>'),
 		('http://free-proxy-list.net', r'<tr><td>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td><td>RU<\/td>'),
-		('http://hideme.ru/proxy-list/?country=RU&type=hs', r'<td class=tdl>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td>')
 	)
 	for src in sources:
 		info('Getting proxies from {}'.format(src[0]))
@@ -84,7 +85,7 @@ def proxy_get(hdrs):
 	return None
 
 if __name__ == '__main__':
-	print('RuTube Downloader v0.3\n')
+	print('RuTube Downloader v0.4\n')
 
 	if len(sys.argv) < 2:
 		die('Usage: rtdl.py rutube_url [-O dir] [-f mkv|mp4] [-p] [-nc]\nCustom params:\n\t-O dir\t\t-- set directory to save result files (default: current working dir)\n\t-f mp4|mkv\t-- set result file format (default: mp4)\n\t-p\t\t-- use RU proxy for downloading country-restricted videos (default: disabled)\n\t-nc\t\t-- don\'t convert source file to MP4/MKV')
@@ -117,11 +118,28 @@ if __name__ == '__main__':
 
 	hdrs = {'User-Agent': USER_AGENT, 'Connection': 'keep-alive'}
 	if '-p' in sys.argv:
-		proxy = proxy_get(hdrs)
-		if proxy is None:
-			die('No proxy found, exiting')
-		else:
-			os.environ['HTTP_PROXY'] = proxy
+		tmp_file = os.path.join(tempfile.gettempdir(), 'rtdl-lastproxy.txt')
+		proxy = None
+		if os.path.exists(tmp_file):
+			with open(tmp_file, 'r') as fh:
+			 	proxy = fh.read(29).rstrip()
+			if re.match(r'http:\/\/(?:[0-9]{1,3}\.){3}[0-9]{1,3}:\d{2,5}', proxy):
+				try:
+					proxied_html = requests.get('http://rutube.ru', proxies={'http': proxy}, timeout=2, headers=hdrs).text
+				except Exception:
+					proxy = None
+				if proxy and 'Rutube' not in proxied_html:
+					proxy = None
+				
+				if proxy:
+					info('Chosen previously saved proxy - {}'.format(proxy))
+		if not proxy:
+			proxy = proxy_get(hdrs)
+			if not proxy:
+				die('No proxy found, exiting')
+			with open(tmp_file, 'w') as fh:
+				fh.write(proxy)
+		os.environ['HTTP_PROXY'] = proxy
 
 	hdrs['Referer'] = sys.argv[1]
 	vhash = r.group(1)
@@ -181,7 +199,7 @@ if __name__ == '__main__':
 		try:
 			item = resq.get()
 		except KeyboardInterrupt: # Ctrl-C is pressed
-			info('\nStopping size getter threads')
+			info('Stopping size getter threads')
 			stop_threads(thrs)
 			die('Aborted!')
 		if item is None:
