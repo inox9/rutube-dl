@@ -45,7 +45,7 @@ def proxylist_check(proxies, hdrs):
 	for proxy in proxies:
 		chq.put(proxy)
 	thrs = []
-	thr_count = min(DOWNLOAD_THREADS, len(proxies))
+	thr_count = min(DOWNLOAD_THREADS*2, len(proxies))
 	for i in range(thr_count):
 		thr = ProxyCheckerThread(chq, resq, hdrs)
 		thr.start()
@@ -187,7 +187,7 @@ if __name__ == '__main__':
 	# start threaded getting of content-length
 	info('Getting source\'s total size')
 	thrs = []
-	thr_count = min(DOWNLOAD_THREADS, parts_cnt)
+	thr_count = min(DOWNLOAD_THREADS*2, parts_cnt)
 	for i in range(thr_count):
 		thr = SizeGetterThread(scq, resq, hdrs)
 		thr.start()
@@ -224,6 +224,7 @@ if __name__ == '__main__':
 		fs.truncate(size_total)
 
 	resq = queue.Queue()
+	thr_count = min(DOWNLOAD_THREADS, parts_cnt)
 	# start threaded downloading
 	thrs = []
 	for i in range(thr_count):
