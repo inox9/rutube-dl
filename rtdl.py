@@ -9,6 +9,7 @@ import json
 import queue
 import subprocess
 import os
+import tempfile
 import html.entities as HE
 import multiprocessing
 from urllib.parse import urlsplit, urlunsplit
@@ -42,7 +43,7 @@ def proxylist_check(proxies, hdrs):
 	for proxy in proxies:
 		chq.put(proxy)
 	thrs = []
-	thr_count = min(DOWNLOAD_THREADS, len(proxies))
+	thr_count = min(DOWNLOAD_THREADS*2, len(proxies))
 	for i in range(thr_count):
 		thr = ProxyCheckerThread(chq, resq, hdrs)
 		thr.start()
@@ -53,7 +54,7 @@ def proxylist_check(proxies, hdrs):
 			item = resq.get()
 			resq.task_done()
 		except KeyboardInterrupt: # Ctrl-C is pressed
-			info('\nStopping proxy checker threads')
+			info('Stopping proxy checker threads')
 			stop_threads(thrs)
 			die('Aborted!')
 		if item is None:
@@ -66,8 +67,8 @@ def proxylist_check(proxies, hdrs):
 
 def proxy_get(hdrs):
 	sources = (
+		('http://hideme.ru/proxy-list/?country=RU&type=hs', r'<td class=tdl>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td>'),
 		('http://free-proxy-list.net', r'<tr><td>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td><td>RU<\/td>'),
-		('http://hideme.ru/proxy-list/?country=RU&type=hs', r'<td class=tdl>((?:[0-9]{1,3}\.){3}[0-9]{1,3})<\/td><td>(\d+)<\/td>')
 	)
 	for src in sources:
 		info('Getting proxies from {}'.format(src[0]))
@@ -82,10 +83,10 @@ def proxy_get(hdrs):
 	return None
 
 if __name__ == '__main__':
-	print('RuTube Downloader v0.3\n')
+	print('RuTube Downloader v0.4\n')
 
 	if len(sys.argv) < 2:
-		die('Usage: rtdl.py rutube_url [-O dir] [-f mkv|mp4] [-p] [-nc]\nCustom params:\n\t-O dir\t\t-- set directory to save result files (default: current working dir)\n\t-f mp4|mkv\t-- set result file format (default: mp4)\n\t-p\t\t-- use RU proxy for downloading country-restricted videos (default: disabled)\n\t-nc\t\t-- don\'t convert source file to MP4/MKV')
+		die('Usage: rtdl.py rutube_url [-O dir] [-f mkv|mp4] [-p] [-nc]\nCustom params:\n\t-O dir\t\t-- set directory to save result files (default: current working dir)\n\t-f mp4|mkv\t-- set result file format (default: mp4)\n\t-p\t\t-- use RU proxy for downloading country-restricted videos (default: disabled)\n\t-nc\t\t-- don\'t convert source file to MP4/MKV\n\t-hds\t\t-- use adobe hds encrypted sources')
 	# cli argument parsing
 	r = re.match(r'http://rutube\.ru/video/([a-f0-9]+)', sys.argv[1])
 	if not r:
@@ -115,11 +116,28 @@ if __name__ == '__main__':
 
 	hdrs = {'User-Agent': USER_AGENT, 'Connection': 'keep-alive'}
 	if '-p' in sys.argv:
-		proxy = proxy_get(hdrs)
-		if proxy is None:
-			die('No proxy found, exiting')
-		else:
-			os.environ['HTTP_PROXY'] = proxy
+		tmp_file = os.path.join(tempfile.gettempdir(), 'rtdl-lastproxy.txt')
+		proxy = None
+		if os.path.exists(tmp_file):
+			with open(tmp_file, 'r') as fh:
+				proxy = fh.read(29).rstrip()
+			if re.match(r'http://(?:[0-9]{1,3}\.){3}[0-9]{1,3}:\d{2,5}', proxy):
+				try:
+					proxied_html = requests.get('http://rutube.ru', proxies={'http': proxy}, timeout=3, headers=hdrs).text
+				except Exception:
+					proxy = None
+				if proxy and 'Rutube' not in proxied_html:
+					proxy = None
+				
+				if proxy:
+					info('Chosen previously saved proxy - {}'.format(proxy))
+		if not proxy:
+			proxy = proxy_get(hdrs)
+			if not proxy:
+				die('No proxy found, exiting')
+			with open(tmp_file, 'w') as fh:
+				fh.write(proxy)
+		os.environ['HTTP_PROXY'] = proxy
 
 	hds = '-hds' in sys.argv
 
@@ -130,7 +148,8 @@ if __name__ == '__main__':
 	title = js['title']
 	for ch in ('<', '>', ':', '"', '/', '\\', '|', '?', '*'):
 		title = title.replace(ch, '')
-	source_fn = os.path.join(save_dir, '{}.ts'.format(title)) if save_dir else '{}.ts'.format(title)
+	ext = 'flv' if hds else 'ts'
+	source_fn = os.path.join(save_dir, '{}.{}'.format(title, ext)) if save_dir else '{}.{}'.format(title, ext)
 	embed_html = requests.get(js['embed_url']).text
 	opts = re.search(r'<div id="options" data-value="(.+)"', embed_html)
 	if not opts:
@@ -142,10 +161,11 @@ if __name__ == '__main__':
 	if hds:
 		try:
 			cwd = os.getcwd()
+			proj_dir = os.path.dirname(os.path.abspath(__file__))
 			os.chdir(tempfile.gettempdir())
 			subprocess.check_call([
 				'php',
-				os.path.join(os.path.dirname(os.path.abspath(__file__)), 'AdobeHDS.php')
+				os.path.join(proj_dir, 'AdobeHDS.php'),
 				'--manifest',
 				js['video_balancer']['default'],
 				'--delete',
@@ -175,7 +195,7 @@ if __name__ == '__main__':
 		info('Saving TS source to: "{}"'.format(source_fn))
 		dlq = queue.Queue() # download queue
 		resq = queue.Queue() # result queue
-		scq  = queue.Queue() # size checker queue
+		scq = queue.Queue() # size checker queue
 		parts_cnt = len(valid_lines)
 
 		if 'HTTP_PROXY' in os.environ: # sources are NOT country-restricted so we can download them without proxy on full speed
@@ -263,7 +283,7 @@ if __name__ == '__main__':
 	if convert:
 		try:
 			info('Converting to {} (ffmpeg)'.format(oformat.upper()))
-			dest_fn = re.sub(r'ts$', oformat, source_fn)
+			dest_fn = re.sub(r'{}$'.format(ext), oformat, source_fn)
 			cmd = ['ffmpeg', '-y', '-i', source_fn, '-c:v', 'copy', '-c:a', 'copy']
 			if not hds:
 				cmd.extend(['-bsf:a', 'aac_adtstoasc'])
