@@ -7,10 +7,8 @@ import requests
 import re
 import json
 import queue
-import threading
 import subprocess
 import os
-import random
 import html.entities as HE
 import multiprocessing
 from urllib.parse import urlsplit, urlunsplit
@@ -123,6 +121,8 @@ if __name__ == '__main__':
 		else:
 			os.environ['HTTP_PROXY'] = proxy
 
+	hds = '-hds' in sys.argv
+
 	hdrs['Referer'] = sys.argv[1]
 	vhash = r.group(1)
 	js = requests.get('http://rutube.ru/api/video/{}'.format(vhash), headers=hdrs).text
@@ -130,6 +130,7 @@ if __name__ == '__main__':
 	title = js['title']
 	for ch in ('<', '>', ':', '"', '/', '\\', '|', '?', '*'):
 		title = title.replace(ch, '')
+	source_fn = os.path.join(save_dir, '{}.ts'.format(title)) if save_dir else '{}.ts'.format(title)
 	embed_html = requests.get(js['embed_url']).text
 	opts = re.search(r'<div id="options" data-value="(.+)"', embed_html)
 	if not opts:
@@ -138,115 +139,137 @@ if __name__ == '__main__':
 	for what, to in HE.entitydefs.items():
 		opts = opts.replace('&{};'.format(what), to)
 	js = json.loads(opts)
-	try:
-		m3u8 = requests.get(js['video_balancer']['m3u8'], headers=hdrs).text
-	except KeyError:
-		die('No playlist url found, perhaps video is blocked for this country')
-	valid_lines = list(x for x in m3u8.splitlines() if x[0] != '#')
-	try:
-		parts_url = valid_lines[-1] # best quality source available is the last one
-	except IndexError:
-		die('Cant get main playlist url')
-	m3u8 = requests.get(parts_url, headers=hdrs).text
-	parsed = urlsplit(parts_url)
-	source_fn = os.path.join(save_dir, '{}.ts'.format(title)) if save_dir else '{}.ts'.format(title)
-	valid_lines = list(x for x in m3u8.splitlines() if x[0] != '#')
-	if os.path.exists(source_fn):
-		os.remove(source_fn)
-	
-	info('Saving TS source to: "{}"'.format(source_fn))
-	dlq = queue.Queue() # download queue
-	resq = queue.Queue() # result queue
-	scq  = queue.Queue() # size checker queue
-	parts_cnt = len(valid_lines)
-	
-	if 'HTTP_PROXY' in os.environ: # sources are NOT country-restricted so we can download them without proxy on full speed
-		del os.environ['HTTP_PROXY']
-
-	for idx, line in enumerate(valid_lines):
-		scq.put((compose_url(parsed, line), idx))
-	
-	# start threaded getting of content-length
-	info('Getting source\'s total size')
-	thrs = []
-	thr_count = min(DOWNLOAD_THREADS, parts_cnt)
-	for i in range(thr_count):
-		thr = SizeGetterThread(scq, resq, hdrs)
-		thr.start()
-		thrs.append(thr)
-
-	f_thr = 0
-	sizes = {}
-	while True:
+	if hds:
 		try:
-			item = resq.get()
-		except KeyboardInterrupt: # Ctrl-C is pressed
-			info('\nStopping size getter threads')
-			stop_threads(thrs)
-			die('Aborted!')
-		if item is None:
-			f_thr += 1
-		else:
-			sizes[item[0]] = item[1]
-			resq.task_done()
-		if f_thr == thr_count: # all threads have finished getting content-length
-			break
-		
-	for t in thrs:
-		t.join()
-
-	# calculate seek positions for every part
-	size_total = 0
-	for idx, val in sizes.items():
-		dlq.put((compose_url(parsed, valid_lines[idx]), size_total))
-		size_total += val
-	
-	info('Allocating disk space, this may take a while')
-	with open(source_fn, 'wb') as fs:
-		fs.truncate(size_total)
-
-	resq = queue.Queue()
-	# start threaded downloading
-	thrs = []
-	for i in range(thr_count):
-		thr = DownloadThread(dlq, source_fn, resq, hdrs)
-		thr.start()
-		thrs.append(thr)
-	
-	parts_dl = 0
-	bytes_dl = 0
-	f_thr = 0
-	mb_size_total = size_total / MB
-	while True: # here we process progress messages from threads and actually wait till download finishes
+			cwd = os.getcwd()
+			os.chdir(tempfile.gettempdir())
+			subprocess.check_call([
+				'php',
+				os.path.join(os.path.dirname(os.path.abspath(__file__)), 'AdobeHDS.php')
+				'--manifest',
+				js['video_balancer']['default'],
+				'--delete',
+				'--outfile',
+				source_fn
+			])
+			os.chdir(cwd)
+		except subprocess.CalledProcessError:
+			die('AdobeHDS convert error!')
+	else:
 		try:
-			item = resq.get()
-		except KeyboardInterrupt: # Ctrl-C is pressed
-			info('\nStopping download threads')
-			stop_threads(thrs)
-			info('Removing incompleted source file')
+			m3u8 = requests.get(js['video_balancer']['m3u8'], headers=hdrs).text
+		except KeyError:
+			die('No playlist url found, perhaps video is blocked for this country')
+
+		valid_lines = list(x for x in m3u8.splitlines() if x[0] != '#')
+		try:
+			parts_url = valid_lines[-1] # best quality source available is the last one
+		except IndexError:
+			die('Cant get main playlist url')
+		m3u8 = requests.get(parts_url, headers=hdrs).text
+		parsed = urlsplit(parts_url)
+		valid_lines = list(x for x in m3u8.splitlines() if x[0] != '#')
+		if os.path.exists(source_fn):
 			os.remove(source_fn)
-			die('Downloading was aborted!')
-		if item is None:
-			f_thr += 1
-		else:
-			bytes_dl += item
-			parts_dl += 1
-			sys.stdout.write("\r[INFO] Downloading - {0:.1f}%, {3:.1f}/{4:.1f}Mb ({1}/{2})".format(parts_dl / parts_cnt * 100, parts_dl, parts_cnt, bytes_dl / MB, mb_size_total))
-			sys.stdout.flush()
-			resq.task_done()
-		if f_thr == thr_count: # all threads have finished download processing
-			break	
-	
-	for t in thrs:
-		t.join()
 
-	print()
+		info('Saving TS source to: "{}"'.format(source_fn))
+		dlq = queue.Queue() # download queue
+		resq = queue.Queue() # result queue
+		scq  = queue.Queue() # size checker queue
+		parts_cnt = len(valid_lines)
+
+		if 'HTTP_PROXY' in os.environ: # sources are NOT country-restricted so we can download them without proxy on full speed
+			del os.environ['HTTP_PROXY']
+
+		for idx, line in enumerate(valid_lines):
+			scq.put((compose_url(parsed, line), idx))
+
+		# start threaded getting of content-length
+		info('Getting source\'s total size')
+		thrs = []
+		thr_count = min(DOWNLOAD_THREADS, parts_cnt)
+		for i in range(thr_count):
+			thr = SizeGetterThread(scq, resq, hdrs)
+			thr.start()
+			thrs.append(thr)
+
+		f_thr = 0
+		sizes = {}
+		while True:
+			try:
+				item = resq.get()
+			except KeyboardInterrupt: # Ctrl-C is pressed
+				info('\nStopping size getter threads')
+				stop_threads(thrs)
+				die('Aborted!')
+			if item is None:
+				f_thr += 1
+			else:
+				sizes[item[0]] = item[1]
+				resq.task_done()
+			if f_thr == thr_count: # all threads have finished getting content-length
+				break
+
+		for t in thrs:
+			t.join()
+
+		# calculate seek positions for every part
+		size_total = 0
+		for idx, val in sizes.items():
+			dlq.put((compose_url(parsed, valid_lines[idx]), size_total))
+			size_total += val
+
+		info('Allocating disk space, this may take a while')
+		with open(source_fn, 'wb') as fs:
+			fs.truncate(size_total)
+
+		resq = queue.Queue()
+		# start threaded downloading
+		thrs = []
+		for i in range(thr_count):
+			thr = DownloadThread(dlq, source_fn, resq, hdrs)
+			thr.start()
+			thrs.append(thr)
+
+		parts_dl = 0
+		bytes_dl = 0
+		f_thr = 0
+		mb_size_total = size_total / MB
+		while True: # here we process progress messages from threads and actually wait till download finishes
+			try:
+				item = resq.get()
+			except KeyboardInterrupt: # Ctrl-C is pressed
+				info('\nStopping download threads')
+				stop_threads(thrs)
+				info('Removing incompleted source file')
+				os.remove(source_fn)
+				die('Downloading was aborted!')
+			if item is None:
+				f_thr += 1
+			else:
+				bytes_dl += item
+				parts_dl += 1
+				sys.stdout.write("\r[INFO] Downloading - {0:.1f}%, {3:.1f}/{4:.1f}Mb ({1}/{2})".format(parts_dl / parts_cnt * 100, parts_dl, parts_cnt, bytes_dl / MB, mb_size_total))
+				sys.stdout.flush()
+				resq.task_done()
+			if f_thr == thr_count: # all threads have finished download processing
+				break
+
+		for t in thrs:
+			t.join()
+
+		print()
+
 	if convert:
 		try:
 			info('Converting to {} (ffmpeg)'.format(oformat.upper()))
 			dest_fn = re.sub(r'ts$', oformat, source_fn)
-			subprocess.check_call(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', source_fn, '-c:v', 'copy', '-c:a', 'copy', '-bsf:a', 'aac_adtstoasc', dest_fn])
-			info('Removing TS source')
+			cmd = ['ffmpeg', '-y', '-i', source_fn, '-c:v', 'copy', '-c:a', 'copy']
+			if not hds:
+				cmd.extend(['-bsf:a', 'aac_adtstoasc'])
+			cmd.extend(['-movflags', 'faststart', dest_fn])
+			subprocess.check_call(cmd)
+			info('Removing source')
 			info('Result file was saved to: "{}"'.format(dest_fn))
 			os.remove(source_fn)
 		except subprocess.CalledProcessError:
