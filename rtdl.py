@@ -161,7 +161,7 @@ if __name__ == '__main__':
 	if hds:
 		try:
 			cwd = os.getcwd()
-			proj_dir = os.path.dirname(os.path.abspath(__file__))
+			proj_dir = os.path.dirname(os.path.realpath(__file__))
 			os.chdir(tempfile.gettempdir())
 			subprocess.check_call([
 				'php',
@@ -284,7 +284,7 @@ if __name__ == '__main__':
 		try:
 			info('Converting to {} (ffmpeg)'.format(oformat.upper()))
 			dest_fn = re.sub(r'{}$'.format(ext), oformat, source_fn)
-			cmd = ['ffmpeg', '-y', '-i', source_fn, '-c:v', 'copy', '-c:a', 'copy']
+			cmd = ['ffmpeg', '-y', '-i', source_fn, '-c:v', 'copy', '-c:a', 'copy', '-dn']
 			if not hds:
 				cmd.extend(['-bsf:a', 'aac_adtstoasc'])
 			cmd.extend(['-movflags', 'faststart', dest_fn])
