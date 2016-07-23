@@ -10,7 +10,6 @@ import queue
 import subprocess
 import os
 import tempfile
-import html.entities as HE
 import multiprocessing
 from urllib.parse import urlsplit, urlunsplit
 from threads import DownloadThread, SizeGetterThread, ProxyCheckerThread
@@ -138,7 +137,6 @@ if __name__ == '__main__':
 			with open(tmp_file, 'w') as fh:
 				fh.write(proxy)
 		os.environ['HTTP_PROXY'] = proxy
-
 	hds = '-hds' in sys.argv
 
 	hdrs['Referer'] = sys.argv[1]
