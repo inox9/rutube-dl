@@ -150,13 +150,7 @@ if __name__ == '__main__':
 		title = title.replace(ch, '')
 	ext = 'flv' if hds else 'ts'
 	source_fn = os.path.join(save_dir, '{}.{}'.format(title, ext)) if save_dir else '{}.{}'.format(title, ext)
-	embed_html = requests.get(js['embed_url']).text
-	opts = re.search(r'<div id="options" data-value="(.+)"', embed_html)
-	if not opts:
-		die('No options found')
-	opts = opts.group(1)
-	for what, to in HE.entitydefs.items():
-		opts = opts.replace('&{};'.format(what), to)
+	opts = requests.get('http://rutube.ru/api/play/options/{}/?format=json'.format(js['track_id']), headers=hdrs).text
 	js = json.loads(opts)
 	if hds:
 		try:
